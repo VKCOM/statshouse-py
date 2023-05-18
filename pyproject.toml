@@ -1,0 +1,47 @@
+[project]
+name = "statshouse"
+version = "0.1.2"
+description = "StatsHouse client library for Python"
+authors = [
+    {name = "Gregory Petrosyan", email = "pgregory@pgregory.net"},
+]
+dependencies = [
+    "msgpack>=1.0.5",
+]
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Monitoring",
+]
+readme = "README.md"
+license = {text = "MPL-2.0"}
+
+[project.urls]
+"Homepage" = "https://github.com/VKCOM/statshouse-py"
+"Bug Tracker" = "https://github.com/VKCOM/statshouse-py/issues"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm.scripts]
+test = "pytest tests/"
+lint = "flake8 src/ tests/"
+fmt = "black src/ tests/"
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "pytest>=7.3.1",
+    "flake8>=5.0.4",
+    "black>=23.3.0",
+    "ipython>=7.34.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+addopts = [
+    "--import-mode=importlib",
+]
