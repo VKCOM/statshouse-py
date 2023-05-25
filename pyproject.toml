@@ -1,6 +1,6 @@
 [project]
 name = "statshouse"
-version = "0.1.5"
+version = "0.2.0"
 description = "StatsHouse client library for Python"
 authors = [
     {name = "Gregory Petrosyan", email = "pgregory@pgregory.net"},
