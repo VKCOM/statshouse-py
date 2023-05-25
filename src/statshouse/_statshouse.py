@@ -55,7 +55,9 @@ class StatsHouse:
         }
         self._send(packet, ts)
 
-    def value(self, metric: str, tags: Tags, v: OneOrMany[Real], *, ts: Real = 0, n: Real = 0):
+    def value(
+        self, metric: str, tags: Tags, v: OneOrMany[Real], *, ts: Real = 0, n: Real = 0
+    ):
         v = (v,) if isinstance(v, Real) else v
         packet = {
             "metrics": (
@@ -72,7 +74,15 @@ class StatsHouse:
             packet["metrics"][0]["counter"] = float(n)
         self._send(packet, ts)
 
-    def unique(self, metric: str, tags: Tags, v: OneOrMany[Integral], *, ts: Real = 0, n: Real = 0):
+    def unique(
+        self,
+        metric: str,
+        tags: Tags,
+        v: OneOrMany[Integral],
+        *,
+        ts: Real = 0,
+        n: Real = 0,
+    ):
         v = (v,) if isinstance(v, Integral) else v
         packet = {
             "metrics": (
@@ -118,5 +128,7 @@ def value(metric: str, tags: Tags, v: OneOrMany[Real], *, ts: Real = 0, n: Real 
     return __sh.value(metric, tags, v, ts=ts, n=n)
 
 
-def unique(metric: str, tags: Tags, v: OneOrMany[Integral], *, ts: Real = 0, n: Real = 0):
+def unique(
+    metric: str, tags: Tags, v: OneOrMany[Integral], *, ts: Real = 0, n: Real = 0
+):
     return __sh.unique(metric, tags, v, ts=ts, n=n)
