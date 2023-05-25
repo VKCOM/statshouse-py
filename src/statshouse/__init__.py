@@ -1,1 +1,1 @@
-from ._statshouse import StatsHouse, count, value, unique
+from ._statshouse import DEFAULT_STATSHOUSE_ADDR, StatsHouse, count, value, unique
