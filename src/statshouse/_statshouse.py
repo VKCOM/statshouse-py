@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import math
 import socket
 import urllib.parse
 from numbers import Real, Integral
@@ -26,9 +27,14 @@ class StatsHouse:
         else:
             self._sock = None
 
-    def _send(self, data: bytes):
-        if self._sock is not None:
-            self._sock.sendto(data, self._addr)
+    def _send(self, packet, ts: Real):
+        if self._sock is None:
+            return
+        if ts != 0:
+            for m in packet["metrics"]:
+                m["ts"] = math.floor(ts)
+        data = msgpack.packb(packet)
+        self._sock.sendto(data, self._addr)
 
     def _normalize_tags(self, tags: Tags) -> Dict[str, str]:
         if isinstance(tags, (tuple, list)):
@@ -38,7 +44,7 @@ class StatsHouse:
             tags["0"] = self._env
         return tags
 
-    def count(self, metric: str, tags: Tags, n: Real):
+    def count(self, metric: str, tags: Tags, n: Real, *, ts: Real = 0):
         packet = {
             "metrics": (
                 {
@@ -48,10 +54,9 @@ class StatsHouse:
                 },
             ),
         }
-        data = msgpack.packb(packet)
-        self._send(data)
+        self._send(packet, ts)
 
-    def value(self, metric: str, tags: Tags, v: OneOrMany[Real]):
+    def value(self, metric: str, tags: Tags, v: OneOrMany[Real], *, ts: Real = 0):
         v = (v,) if isinstance(v, Real) else v
         packet = {
             "metrics": (
@@ -64,10 +69,9 @@ class StatsHouse:
                 },
             ),
         }
-        data = msgpack.packb(packet)
-        self._send(data)
+        self._send(packet, ts)
 
-    def unique(self, metric: str, tags: Tags, v: OneOrMany[Integral]):
+    def unique(self, metric: str, tags: Tags, v: OneOrMany[Integral], *, ts: Real = 0):
         v = (v,) if isinstance(v, Integral) else v
         packet = {
             "metrics": (
@@ -80,8 +84,7 @@ class StatsHouse:
                 },
             ),
         }
-        data = msgpack.packb(packet)
-        self._send(data)
+        self._send(packet, ts)
 
 
 def _init_global() -> StatsHouse:
@@ -104,13 +107,13 @@ def _init_global() -> StatsHouse:
 __sh = _init_global()
 
 
-def count(metric: str, tags: Tags, n: Real):
-    return __sh.count(metric, tags, n)
+def count(metric: str, tags: Tags, n: Real, *, ts: Real = 0):
+    return __sh.count(metric, tags, n, ts=ts)
 
 
-def value(metric: str, tags: Tags, v: OneOrMany[Real]):
-    return __sh.value(metric, tags, v)
+def value(metric: str, tags: Tags, v: OneOrMany[Real], *, ts: Real = 0):
+    return __sh.value(metric, tags, v, ts=ts)
 
 
-def unique(metric: str, tags: Tags, v: OneOrMany[Integral]):
-    return __sh.unique(metric, tags, v)
+def unique(metric: str, tags: Tags, v: OneOrMany[Integral], *, ts: Real = 0):
+    return __sh.unique(metric, tags, v, ts=ts)
