@@ -12,6 +12,9 @@ import msgpack
 
 DEFAULT_STATSHOUSE_ADDR = "127.0.0.1:13337"
 
+TAG_STRING_TOP = "_s"
+TAG_HOST = "_h"
+
 T = TypeVar("T")
 OneOrMany = Union[T, Sequence[T]]
 Tags = Union[Tuple[Optional[str], ...], List[Optional[str]], Dict[str, str]]
