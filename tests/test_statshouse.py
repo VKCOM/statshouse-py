@@ -3,7 +3,7 @@ def test_import():
         DEFAULT_STATSHOUSE_ADDR,
         TAG_STRING_TOP,
         TAG_HOST,
-        StatsHouse,
+        Client,
         count,
         value,
         unique,
