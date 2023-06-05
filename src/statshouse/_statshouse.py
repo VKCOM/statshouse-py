@@ -20,7 +20,7 @@ OneOrMany = Union[T, Sequence[T]]
 Tags = Union[Tuple[Optional[str], ...], List[Optional[str]], Dict[str, str]]
 
 
-class StatsHouse:
+class Client:
     def __init__(self, addr: str, env: str):
         self._env = env
         if addr:
@@ -103,7 +103,7 @@ class StatsHouse:
         self._send(packet, ts)
 
 
-def _init_global() -> StatsHouse:
+def _init_global() -> Client:
     p = argparse.ArgumentParser()
     p.add_argument(
         "--statshouse-addr",
@@ -117,7 +117,7 @@ def _init_global() -> StatsHouse:
     args, left = p.parse_known_args(sys.argv)
     sys.argv = sys.argv[:1] + left
 
-    return StatsHouse(addr=args.statshouse_addr, env=args.statshouse_env)
+    return Client(addr=args.statshouse_addr, env=args.statshouse_env)
 
 
 __sh = _init_global()
