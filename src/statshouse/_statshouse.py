@@ -114,7 +114,7 @@ def _init_global() -> Client:
         "--statshouse-env", type=str, default=os.getenv("STATSHOUSE_ENV", "")
     )
 
-    args, left = p.parse_known_args(sys.argv)
+    args, left = p.parse_known_args()
     sys.argv = sys.argv[:1] + left
 
     return Client(addr=args.statshouse_addr, env=args.statshouse_env)
