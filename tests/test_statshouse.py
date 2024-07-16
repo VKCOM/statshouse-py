@@ -1,3 +1,5 @@
+import subprocess
+
 def test_import():
     from statshouse import (
         DEFAULT_STATSHOUSE_ADDR,
@@ -8,3 +10,6 @@ def test_import():
         value,
         unique,
     )
+
+def test_integration():
+    subprocess.run(["go", "run", "github.com/vkcom/statshouse/cmd/statshouse-client-test@master"], check=True)
