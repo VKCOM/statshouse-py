@@ -35,12 +35,14 @@ LoggerFunc = Callable[[str, ...], None]
 class Bucket:
     """Bucket for accumulating metrics, similar to Go client."""
 
-    def __init__(self, metric_name: str, tags_dict: Dict[str, str], max_size: int = DEFAULT_MAX_BUCKET_SIZE):
+    def __init__(self, metric_name: str, tags_dict: Dict[str, str], max_size: int = DEFAULT_MAX_BUCKET_SIZE,
+                 ts: int = 0):
         self.metric_name = metric_name
         self.tags_dict = tags_dict
         self.max_size = max_size
         self.mu = threading.Lock()
         self.ts_unix_sec = int(time.time())
+        self.ts = ts  # Optional timestamp for this bucket (0 means use current time)
         self.attached = False
 
         # Current accumulation
@@ -384,10 +386,12 @@ class Client:
                 # Get metric name and tags from bucket
                 metric_name = bucket.metric_name
                 tags_dict = bucket.tags_dict.copy()
+                bucket_ts = bucket.ts
 
                 # Convert bucket to msgpack format
                 if bucket.count_to_send > 0:
                     self._metrics_batch.append({
+                        "ts": bucket_ts,
                         "name": metric_name,
                         "tags": tags_dict,
                         "counter": bucket.count_to_send,
@@ -395,6 +399,7 @@ class Client:
 
                 if bucket.value_to_send:
                     metric = {
+                        "ts": bucket_ts,
                         "name": metric_name,
                         "tags": tags_dict,
                         "value": tuple(bucket.value_to_send),
@@ -405,6 +410,7 @@ class Client:
 
                 if bucket.unique_to_send:
                     metric = {
+                        "ts": bucket_ts,
                         "name": metric_name,
                         "tags": tags_dict,
                         "unique": tuple(bucket.unique_to_send),
@@ -417,6 +423,7 @@ class Client:
                     stop_tags = tags_dict.copy()
                     stop_tags[TAG_STRING_TOP] = skey
                     self._metrics_batch.append({
+                        "ts": bucket_ts,
                         "name": metric_name,
                         "tags": stop_tags,
                         "counter": 1.0,
@@ -467,7 +474,8 @@ class Client:
 
         if ts_unix_sec != 0:
             for metric in metrics_batch:
-                metric["ts"] = ts_unix_sec
+                if metric["ts"] == 0:
+                    metric["ts"] = ts_unix_sec
 
         packet = {"metrics": tuple(metrics_batch)}
         data = msgpack.packb(packet)
@@ -517,17 +525,16 @@ class Client:
             tags["0"] = self.env
         return tags
 
-    def _get_bucket(self, metric: str, tags: Tags) -> Bucket:
-        """Get or create bucket for metric+tags."""
-        # Create key
+    def _get_bucket(self, metric: str, tags: Tags, ts: int = 0) -> Bucket:
+        """Get or create bucket for metric+tags+ts."""
         tags_dict = self._normalize_tags(tags)
-        key = (metric, tuple(sorted(tags_dict.items())))
+        key = (metric, tuple(sorted(tags_dict.items())), ts)
 
         with self.mu:
             if key in self.w:
                 return self.w[key]
 
-            bucket = Bucket(metric, tags_dict, max_size=self.max_bucket_size)
+            bucket = Bucket(metric, tags_dict, max_size=self.max_bucket_size, ts=ts)
             bucket.attached = True
             self.w[key] = bucket
             self.r.append(bucket)
@@ -535,31 +542,20 @@ class Client:
 
     def count(self, metric: str, tags: Tags, n: Real, *, ts: Real = 0):
         """Record counter metric."""
-        if ts != 0:
-            # Historic metric - send immediately
-            self._send_historic(metric, tags, {"counter": float(n)}, int(ts))
-        else:
-            bucket = self._get_bucket(metric, tags)
-            with bucket.mu:
-                bucket.count += float(n)
+        bucket = self._get_bucket(metric, tags, int(ts))
+        with bucket.mu:
+            bucket.count += float(n)
 
     def value(
             self, metric: str, tags: Tags, v: OneOrMany[Real], *, ts: Real = 0, n: Real = 0
     ):
         """Record value metric."""
         v = (v,) if isinstance(v, Real) else v
-        if ts != 0:
-            # Historic metric - send immediately
-            metric_dict = {"value": tuple(float(f) for f in v)}
+        bucket = self._get_bucket(metric, tags, int(ts))
+        with bucket.mu:
             if n != 0:
-                metric_dict["counter"] = float(n)
-            self._send_historic(metric, tags, metric_dict, int(ts))
-        else:
-            bucket = self._get_bucket(metric, tags)
-            with bucket.mu:
-                if n != 0:
-                    bucket.count += float(n)
-                bucket.append_value(*(float(f) for f in v))
+                bucket.count += float(n)
+            bucket.append_value(*(float(f) for f in v))
 
     def unique(
             self,
@@ -572,30 +568,11 @@ class Client:
     ):
         """Record unique metric."""
         v = (v,) if isinstance(v, Integral) else v
-        if ts != 0:
-            # Historic metric - send immediately
-            metric_dict = {"unique": tuple(int(i) for i in v)}
+        bucket = self._get_bucket(metric, tags, int(ts))
+        with bucket.mu:
             if n != 0:
-                metric_dict["counter"] = float(n)
-            self._send_historic(metric, tags, metric_dict, int(ts))
-        else:
-            bucket = self._get_bucket(metric, tags)
-            with bucket.mu:
-                if n != 0:
-                    bucket.count += float(n)
-                bucket.append_unique(*(int(i) for i in v))
-
-    def _send_historic(self, metric: str, tags: Tags, metric_data: Dict, ts_unix_sec: int):
-        """Send historic metric immediately."""
-        tags_dict = self._normalize_tags(tags)
-        metric_dict = {
-            "name": metric,
-            "tags": tags_dict,
-            "ts": ts_unix_sec,
-            **metric_data,
-        }
-        with self.transport_mu:
-            self._flush([metric_dict], ts_unix_sec)
+                bucket.count += float(n)
+            bucket.append_unique(*(int(i) for i in v))
 
     def close(self):
         """Close client and flush remaining metrics."""
