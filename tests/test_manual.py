@@ -162,14 +162,92 @@ class TestEdgeCases:
         client.close()
 
     def test_historic_metrics(self):
-        """Test historic metrics (sent immediately)."""
-        client = Client(addr=DEFAULT_STATSHOUSE_ADDR, env="test", network="udp")
+        """Test historic metrics (batched with regular metrics)."""
+        client = Client(addr=DEFAULT_STATSHOUSE_ADDR, env="test", network="udp")  # manual switch udp/tcp
         past_ts = int(time.time()) - 3600
-        client.count(test_metric, {}, 100, ts=past_ts)
-        client.value(test_metric, {}, 1.0, ts=past_ts)
+        
+        # Historic metrics with ts - should be batched
+        client.count(test_metric, {}, 100, ts=past_ts-0.1)
+        client.value(test_metric, {}, 1.0, ts=past_ts+0.1)
         client.unique(test_metric, {}, 1, ts=past_ts)
-        # Historic metrics should be sent immediately
-        time.sleep(0.2)  # Short wait
+        
+        # Regular metrics without ts - should be batched together
+        client.count(test_metric, {}, 1)
+        client.value(test_metric, {}, 2.0)
+        
+        # All should be sent together in one batch
+        time.sleep(1.5)
+        client.close()
+
+    def test_metrics_with_different_ts(self):
+        """Test that metrics with different ts go to different buckets."""
+        client = Client(addr=DEFAULT_STATSHOUSE_ADDR, env="test", network="tcp")  # manual switch udp/tcp
+        
+        base_ts = int(time.time())
+        
+        # Metrics with different ts should be in different buckets
+        client.count(test_metric, {}, 1, ts=base_ts - 100)
+        client.count(test_metric, {}, 2, ts=base_ts - 200)
+        client.count(test_metric, {}, 3, ts=base_ts - 300)
+        
+        # Regular metric without ts
+        client.count(test_metric, {}, 4)
+        
+        time.sleep(1.5)
+        client.close()
+
+    def test_ts_rounding_to_seconds(self):
+        """Test that ts is rounded to seconds (milliseconds/microseconds dropped)."""
+        client = Client(addr=DEFAULT_STATSHOUSE_ADDR, env="test", network="udp")  # manual switch udp/tcp
+        
+        base_ts = int(time.time())
+        
+        # These should all go to same bucket (rounded to same second)
+        client.count(test_metric, {}, 1, ts=base_ts + 0.123)
+        client.count(test_metric, {}, 2, ts=base_ts + 0.456)
+        client.count(test_metric, {}, 3, ts=base_ts + 0.789)
+        client.count(test_metric, {}, 4, ts=base_ts)  # Exact second
+        
+        # This should go to different bucket (different second)
+        client.count(test_metric, {}, 5, ts=base_ts + 1)
+        
+        time.sleep(1.5)
+        client.close()
+
+    def test_mixed_metrics_with_ts(self):
+        """Test mixing metrics with and without ts in same batch."""
+        client = Client(addr=DEFAULT_STATSHOUSE_ADDR, env="test", network="tcp")  # manual switch udp/tcp
+        
+        past_ts = int(time.time()) - 60
+        
+        # Mix of metrics with ts and without ts
+        client.count(test_metric, {}, 1)  # No ts
+        client.count(test_metric, {}, 2, ts=past_ts)  # With ts
+        client.value(test_metric, {}, 1.0)  # No ts
+        client.value(test_metric, {}, 2.0, ts=past_ts)  # With ts
+        client.unique(test_metric, {}, 1)  # No ts
+        client.unique(test_metric, {}, 2, ts=past_ts)  # With ts
+        
+        # All should be batched together
+        time.sleep(1.5)
+        client.close()
+
+    def test_same_ts_same_bucket(self):
+        """Test that metrics with same ts go to same bucket."""
+        client = Client(addr=DEFAULT_STATSHOUSE_ADDR, env="test", network="tcp")  # manual switch udp/tcp
+        
+        same_ts = int(time.time()) - 60
+        
+        # All these should accumulate in same bucket
+        client.count(test_metric, {}, 1, ts=same_ts-0.1)
+        client.count(test_metric, {}, 2, ts=same_ts-0.03)
+        client.count(test_metric, {}, 3, ts=same_ts-0.01)
+        client.value(test_metric, {}, 1.0, ts=same_ts-0.05)
+        client.value(test_metric, {}, 2.0, ts=same_ts-0.0222)
+        client.unique(test_metric, {}, 1, ts=same_ts-0.23)
+        client.unique(test_metric, {}, 2, ts=same_ts-0.467)
+        
+        time.sleep(1.5)
         client.close()
 
 
