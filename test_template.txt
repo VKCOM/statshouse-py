@@ -34,3 +34,4 @@ for x in range({{.NumberOfIterations}}):
     {{- end }}
     {{- end }}
     time.sleep(0.1)
+time.sleep(1)
