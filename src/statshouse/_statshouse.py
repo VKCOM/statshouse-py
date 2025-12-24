@@ -32,6 +32,34 @@ Tags = Union[Tuple[Optional[str], ...], List[Optional[str]], Dict[str, str]]
 LoggerFunc = Callable[[str, ...], None]
 
 
+def max_packet_size(network: str, addr: Optional[str] = None) -> int:
+    """Calculate maximum packet size based on network type.
+
+    For TCP: 65535 bytes (math.MaxUint16 in Go)
+    For UDP: depends on address (loopback vs non-loopback)
+    For unixgram: 1232 bytes
+    """
+    if network == "tcp":
+        return 65535  # math.MaxUint16
+    elif network == "unixgram":
+        return 1232
+    else:  # UDP
+        if addr:
+            try:
+                parsed = urllib.parse.urlsplit("//" + addr, "", False)
+                hostname = parsed.hostname
+                if hostname in ("127.0.0.1", "localhost", "::1"):
+                    # Loopback interface
+                    import platform
+                    if platform.system() == "Darwin":  # macOS
+                        return 1232
+                    return 65507  # https://stackoverflow.com/questions/42609561/udp-maximum-packet-size/42610200
+            except Exception:
+                pass
+        # Default for UDP (non-loopback): IPv6 minimum MTU size
+        return 1232  # IPv6 mandated minimum MTU size of 1280 (minus 40 byte IPv6 header and 8 byte UDP header)
+
+
 class Bucket:
     """Bucket for accumulating metrics, similar to Go client."""
 
@@ -286,6 +314,7 @@ class Client:
         self.addr_str = addr
         self.addr: Optional[Tuple[str, int]] = None
         self.conn: Optional[Union[socket.socket, TCPConn]] = None
+        self.max_packet_size = max_packet_size(self.network, addr)
 
         # Data
         self.mu = threading.RLock()
@@ -477,12 +506,55 @@ class Client:
                 if metric["ts"] == 0:
                     metric["ts"] = ts_unix_sec
 
-        packet = {"metrics": tuple(metrics_batch)}
-        data = msgpack.packb(packet)
-
         if self.addr is None:
             return
 
+        # Split metrics into packets that fit within max_packet_size
+        # For TCP: max data size = max_packet_size - TCP_HEADER_SIZE
+        # For UDP: max data size = max_packet_size (no header)
+        if self.network == "tcp":
+            max_data_size = self.max_packet_size - 4
+        else:
+            max_data_size = self.max_packet_size
+
+        packet = {"metrics": tuple(metrics_batch)}
+        data = msgpack.packb(packet)
+
+        if len(data) <= max_data_size:
+            self._send_packet(data)
+        else:
+            current_batch: List[Dict] = []
+            for metric in metrics_batch:
+                test_batch = current_batch + [metric]
+                test_packet = {"metrics": tuple(test_batch)}
+                test_data = msgpack.packb(test_packet)
+
+                if len(test_data) <= max_data_size:
+                    current_batch = test_batch
+                else:
+                    # Metric doesn't fit, send current batch first
+                    if current_batch:
+                        current_packet = {"metrics": tuple(current_batch)}
+                        current_data = msgpack.packb(current_packet)
+                        self._send_packet(current_data)
+                    # Try to send this metric alone
+                    single_packet = {"metrics": (metric,)}
+                    single_data = msgpack.packb(single_packet)
+                    if len(single_data) <= max_data_size:
+                        current_batch = [metric]
+                    else:
+                        self.rare_log(
+                            "[statshouse] metric %r payload too big to fit into packet, discarding",
+                            metric.get("name", "unknown")
+                        )
+                        current_batch = []
+            if current_batch:
+                current_packet = {"metrics": tuple(current_batch)}
+                current_data = msgpack.packb(current_packet)
+                self._send_packet(current_data)
+
+    def _send_packet(self, data: bytes):
+        """Send a single packet to transport."""
         if self.network == "udp":
             if self.conn is None:
                 self.conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
